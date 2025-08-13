@@ -1,0 +1,11 @@
+node_modules/
+
+.wwebjs_auth/
+
+.wwebjs_cache/
+
+chat_history.json
+
+.env
+
+*.log
