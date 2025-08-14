@@ -4,29 +4,39 @@ const OpenAI = require("openai");
 const fs = require("fs");
 const path = require("path");
 
+// Local auth folder used by whatsapp-web.js's LocalAuth
+const AUTH_FOLDER = path.join(__dirname, ".wwebjs_auth");
+
 // Initialize OpenAI
 require("dotenv").config();
 const openai = new OpenAI({
   apiKey: process.env.OPEN_AI_KEY,
 });
 
-// Initialize WhatsApp client
-const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: {
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-accelerated-2d-canvas",
-      "--no-first-run",
-      "--no-zygote",
-      "--single-process",
-      "--disable-gpu",
-    ],
-  },
-});
+// Initialize WhatsApp client (we'll create instances via createClient)
+let client;
+
+function createClient() {
+  client = new Client({
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-accelerated-2d-canvas",
+        "--no-first-run",
+        "--no-zygote",
+        "--single-process",
+        "--disable-gpu",
+      ],
+    },
+  });
+
+  attachClientHandlers();
+  client.initialize();
+}
 
 // Configuration
 const CONFIG = {
@@ -200,117 +210,119 @@ async function generateAIResponse(message, contact) {
   }
 }
 
-// QR Code generation
-client.on("qr", (qr) => {
-  console.log("Scan this QR code with your WhatsApp mobile app:");
-  qrcode.generate(qr, { small: true });
-  console.log(
-    "\nAlternatively, you can scan this QR code with your phone camera."
-  );
-});
-
-// Client ready
-client.on("ready", () => {
-  console.log("✅ WhatsApp bot is ready!");
-  console.log("🤖 Auto-reply is enabled");
-  console.log("⚡ Powered by OpenAI GPT-4o-mini");
-
-  // Load existing chat history
-  loadChatHistory();
-
-  // Set up periodic saving of chat history
-  setInterval(saveChatHistory, CONFIG.saveHistoryInterval);
-});
-
-// Authentication success
-client.on("authenticated", () => {
-  console.log("✅ WhatsApp authenticated successfully");
-});
-
-// Authentication failure
-client.on("auth_failure", (msg) => {
-  console.error("❌ Authentication failed:", msg);
-});
-
-// Handle incoming messages
-client.on("message", async (message) => {
-  try {
-    // Skip if auto-reply is disabled
-    if (!CONFIG.enableAutoReply) return;
-
-    // Skip messages from self
-    if (message.fromMe) return;
-
-    // Get contact info
-    const contact = await message.getContact();
-    const chat = await message.getChat();
-
-    // Skip if number is in exclude list
-    if (CONFIG.excludeNumbers.includes(contact.id._serialized)) {
-      console.log(
-        `⏭️  Skipped message from excluded number: ${
-          contact.name || contact.number
-        }`
-      );
-      return;
-    }
-
-    // Skip group messages if disabled
-    if (chat.isGroup && !CONFIG.replyToGroups) {
-      console.log(`⏭️  Skipped group message from: ${chat.name}`);
-      return;
-    }
-
-    // Skip media messages, handle only text
-    if (message.type !== "chat") {
-      console.log(`⏭️  Skipped non-text message type: ${message.type}`);
-      return;
-    }
-
-    const messageBody = message.body.trim();
-    if (!messageBody) return;
-
-    const contactName = contact.name || contact.number;
-    const contactId = contact.id._serialized;
-    const historyCount = conversationHistory.get(contactId)?.length || 0;
-
+function attachClientHandlers() {
+  // QR Code generation
+  client.on("qr", (qr) => {
+    console.log("Scan this QR code with your WhatsApp mobile app:");
+    qrcode.generate(qr, { small: true });
     console.log(
-      `📨 Received message from ${contactName} (${historyCount} msgs in history): "${messageBody}"`
+      "\nAlternatively, you can scan this QR code with your phone camera."
     );
+  });
 
-    // Add typing indicator delay for natural feel
-    if (CONFIG.replyDelay > 0) {
-      await chat.sendStateTyping();
-      await new Promise((resolve) => setTimeout(resolve, CONFIG.replyDelay));
+  // Client ready
+  client.on("ready", () => {
+    console.log("✅ WhatsApp bot is ready!");
+    console.log("🤖 Auto-reply is enabled");
+    console.log("⚡ Powered by OpenAI GPT-4o-mini");
+
+    // Load existing chat history
+    loadChatHistory();
+
+    // Set up periodic saving of chat history
+    setInterval(saveChatHistory, CONFIG.saveHistoryInterval);
+  });
+
+  // Authentication success
+  client.on("authenticated", () => {
+    console.log("✅ WhatsApp authenticated successfully");
+  });
+
+  // Authentication failure
+  client.on("auth_failure", (msg) => {
+    console.error("❌ Authentication failed:", msg);
+  });
+
+  // Handle disconnection
+  client.on("disconnected", (reason) => {
+    console.log("❌ WhatsApp disconnected:", reason);
+    console.log("🔄 Attempting to reconnect...");
+
+    // Save chat history before potential shutdown
+    saveChatHistory();
+  });
+
+  // Handle incoming messages
+  client.on("message", async (message) => {
+    try {
+      // Skip if auto-reply is disabled
+      if (!CONFIG.enableAutoReply) return;
+
+      // Skip messages from self
+      if (message.fromMe) return;
+
+      // Get contact info
+      const contact = await message.getContact();
+      const chat = await message.getChat();
+
+      // Skip if number is in exclude list
+      if (CONFIG.excludeNumbers.includes(contact.id._serialized)) {
+        console.log(
+          `⏭️  Skipped message from excluded number: ${
+            contact.name || contact.number
+          }`
+        );
+        return;
+      }
+
+      // Skip group messages if disabled
+      if (chat.isGroup && !CONFIG.replyToGroups) {
+        console.log(`⏭️  Skipped group message from: ${chat.name}`);
+        return;
+      }
+
+      // Skip media messages, handle only text
+      if (message.type !== "chat") {
+        console.log(`⏭️  Skipped non-text message type: ${message.type}`);
+        return;
+      }
+
+      const messageBody = message.body.trim();
+      if (!messageBody) return;
+
+      const contactName = contact.name || contact.number;
+      const contactId = contact.id._serialized;
+      const historyCount = conversationHistory.get(contactId)?.length || 0;
+
+      console.log(
+        `📨 Received message from ${contactName} (${historyCount} msgs in history): "${messageBody}"`
+      );
+
+      // Add typing indicator delay for natural feel
+      if (CONFIG.replyDelay > 0) {
+        await chat.sendStateTyping();
+        await new Promise((resolve) => setTimeout(resolve, CONFIG.replyDelay));
+      }
+
+      // Generate AI response
+      const aiResponse = await generateAIResponse(messageBody, contact);
+
+      // Send reply
+      await message.reply(aiResponse);
+      console.log(`🤖 Auto-replied to ${contactName}: "${aiResponse}"`);
+
+      // Clear typing state
+      await chat.clearState();
+    } catch (error) {
+      console.error("Error handling message:", error);
     }
+  });
+}
 
-    // Generate AI response
-    const aiResponse = await generateAIResponse(messageBody, contact);
-
-    // Send reply
-    await message.reply(aiResponse);
-    console.log(`🤖 Auto-replied to ${contactName}: "${aiResponse}"`);
-
-    // Clear typing state
-    await chat.clearState();
-  } catch (error) {
-    console.error("Error handling message:", error);
-  }
-});
-
-// Handle disconnection
-client.on("disconnected", (reason) => {
-  console.log("❌ WhatsApp disconnected:", reason);
-  console.log("🔄 Attempting to reconnect...");
-
-  // Save chat history before potential shutdown
-  saveChatHistory();
-});
-
-// Start the client
+// Start the system by creating the client
 console.log("🚀 Starting WhatsApp Auto-Reply Bot...");
 console.log("📱 Make sure WhatsApp Web is not open in any browser");
-client.initialize();
+createClient();
 
 // Graceful shutdown with history saving
 process.on("SIGINT", () => {
@@ -513,6 +525,7 @@ app.get("/", (req, res) => {
                 <button class="btn btn-success" onclick="refreshStatus()">Refresh Status</button>
                 <button class="btn btn-warning" onclick="saveHistory()">Save History Now</button>
                 <button class="btn btn-danger" onclick="clearLogs()">Clear Logs</button>
+                <button class="btn btn-danger" onclick="resetAuth()">Reset Authentication</button>
             </div>
 
             <div class="history-section">
@@ -580,6 +593,24 @@ app.get("/", (req, res) => {
                     addLog('❌ Failed to refresh status: ' + error.message);
                 }
             }
+
+              async function resetAuth() {
+                if (!confirm('Are you sure you want to reset authentication? This will delete local session data and require scanning a new QR code.')) return;
+                addLog('🔄 Resetting authentication...');
+                try {
+                  const resp = await fetch('/reset-auth', { method: 'POST' });
+                  const data = await resp.json();
+                  if (data.success) {
+                    addLog('✅ ' + data.message);
+                  } else {
+                    addLog('❌ Reset failed: ' + (data.error || 'Unknown'));
+                  }
+                } catch (err) {
+                  addLog('❌ Reset request failed: ' + err.message);
+                }
+                // Give server a moment then refresh status
+                setTimeout(refreshStatus, 1500);
+              }
 
             function updateHistoryList(historyDetails) {
                 const historyList = document.getElementById('historyList');
@@ -724,6 +755,66 @@ app.post("/clear-history", (req, res) => {
     res
       .status(500)
       .json({ message: "Failed to clear chat history: " + error.message });
+  }
+});
+
+// Reset authentication: destroy client, remove LocalAuth folder, and re-init
+app.post("/reset-auth", async (req, res) => {
+  try {
+    console.log("🔔 /reset-auth called");
+    // Save history before doing anything
+    saveChatHistory();
+
+    // Destroy client if it's running
+    try {
+      await client.destroy();
+      console.log("🔄 WhatsApp client destroyed for reset");
+    } catch (e) {
+      console.warn(
+        "⚠️ client.destroy() failed or client not initialized:",
+        e.message || e
+      );
+    }
+
+    // Remove auth folder
+    if (fs.existsSync(AUTH_FOLDER)) {
+      try {
+        fs.rmSync(AUTH_FOLDER, { recursive: true, force: true });
+        console.log("🗑️  Removed auth folder:", AUTH_FOLDER);
+      } catch (rmErr) {
+        console.error("❌ Failed to remove auth folder:", rmErr);
+        return res.status(500).json({
+          success: false,
+          error: "Failed to remove auth folder: " + rmErr.message,
+        });
+      }
+    } else {
+      console.log("ℹ️ Auth folder not present, nothing to remove");
+    }
+
+    // Recreate client and initialize (create a fresh instance)
+    // Respond to the dashboard immediately, then re-create client asynchronously
+    res.json({
+      success: true,
+      message: "Authentication reset. Scan the new QR code in the terminal.",
+    });
+
+    setTimeout(() => {
+      try {
+        console.log("🔄 Creating new client after reset (async)");
+        createClient();
+        console.log(
+          "🔄 WhatsApp client re-created and initialized after reset"
+        );
+      } catch (initErr) {
+        console.error("❌ Failed to create new client:", initErr);
+      }
+    }, 1000);
+  } catch (error) {
+    console.error("❌ /reset-auth error:", error);
+    return res
+      .status(500)
+      .json({ success: false, error: error.message || String(error) });
   }
 });
 
