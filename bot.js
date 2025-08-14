@@ -5,8 +5,9 @@ const fs = require("fs");
 const path = require("path");
 
 // Initialize OpenAI
+require("dotenv").config();
 const openai = new OpenAI({
-  apiKey: "YOUR_OPENAI_API_KEY_HERE", // Replace with your actual API key
+  apiKey: process.env.OPEN_AI_KEY,
 });
 
 // Initialize WhatsApp client
