@@ -1,5 +1,6 @@
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
+const QR = require('qrcode');
 const OpenAI = require("openai");
 const fs = require("fs");
 const path = require("path");
@@ -15,6 +16,11 @@ const openai = new OpenAI({
 
 // Initialize WhatsApp client (we'll create instances via createClient)
 let client;
+
+// In-memory last QR string (used to serve a PNG/data URL to the dashboard)
+let lastQr = null;
+// auth state
+let isAuthenticated = false;
 
 function createClient() {
   client = new Client({
@@ -218,6 +224,8 @@ function attachClientHandlers() {
     console.log(
       "\nAlternatively, you can scan this QR code with your phone camera."
     );
+  // store last QR so the dashboard can fetch it
+  lastQr = qr;
   });
 
   // Client ready
@@ -236,6 +244,9 @@ function attachClientHandlers() {
   // Authentication success
   client.on("authenticated", () => {
     console.log("✅ WhatsApp authenticated successfully");
+  isAuthenticated = true;
+  // once authenticated, clear the last QR so dashboard stops showing it
+  lastQr = null;
   });
 
   // Authentication failure
@@ -247,6 +258,9 @@ function attachClientHandlers() {
   client.on("disconnected", (reason) => {
     console.log("❌ WhatsApp disconnected:", reason);
     console.log("🔄 Attempting to reconnect...");
+
+  // mark not authenticated so dashboard will show QR when emitted
+  isAuthenticated = false;
 
     // Save chat history before potential shutdown
     saveChatHistory();
@@ -499,6 +513,9 @@ app.get("/", (req, res) => {
                 <p>Auto-Reply: <strong id="autoReplyStatus">Loading...</strong></p>
                 <p>Connected Chats: <strong id="chatCount">Loading...</strong></p>
                 <p>Contacts with History: <strong id="historyCount">Loading...</strong></p>
+        <div id="qrSection" style="margin-top:12px;">
+          <div id="qrContainer">QR status will appear here</div>
+        </div>
             </div>
 
             <div class="stats">
@@ -585,8 +602,26 @@ app.get("/", (req, res) => {
                     const uptimeMinutes = Math.floor((Date.now() - startTime) / 60000);
                     document.getElementById('uptime').textContent = uptimeMinutes + 'm';
                     
-                    // Update history list
+          // Update history list
                     updateHistoryList(data.historyDetails);
+          // Show or hide QR container based on authentication
+          const qrContainer = document.getElementById('qrContainer');
+          if (!data.authenticated) {
+            // try fetch QR image
+            try {
+              const r = await fetch('/qr-image');
+              if (r.ok) {
+                const j = await r.json();
+                                qrContainer.innerHTML = '<img src="' + j.dataUrl + '" alt="QR" style="max-width:200px;"/>';
+              } else {
+                qrContainer.innerHTML = 'No QR available';
+              }
+            } catch (e) {
+              qrContainer.innerHTML = 'QR load error';
+            }
+          } else {
+            qrContainer.innerHTML = 'Authenticated';
+          }
                     
                     addLog('✅ Status refreshed');
                 } catch (error) {
@@ -711,6 +746,7 @@ app.get("/status", (req, res) => {
   res.json({
     status: "running",
     autoReply: CONFIG.enableAutoReply,
+  authenticated: isAuthenticated,
     connectedChats: conversationHistory.size,
     historyContacts: conversationHistory.size,
     totalHistoryMessages: totalHistoryMessages,
@@ -755,6 +791,17 @@ app.post("/clear-history", (req, res) => {
     res
       .status(500)
       .json({ message: "Failed to clear chat history: " + error.message });
+  }
+});
+
+// Return last QR as PNG data URL (so dashboard can display it)
+app.get('/qr-image', async (req, res) => {
+  try {
+    if (!lastQr) return res.status(404).json({ error: 'No QR available' });
+    const dataUrl = await QR.toDataURL(lastQr, { errorCorrectionLevel: 'M' });
+    res.json({ dataUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
