@@ -29,8 +29,8 @@ require("dotenv").config();
 const CONFIG = {
   // Auth settings
   authFolder: './baileys_auth_info',
-  usePhoneNumber: true, // Set to true to use phone number instead of QR
-  phoneNumber: '+2348119729920', // Your phone number with country code (e.g., '+1234567890')
+  usePhoneNumber: false, // Changed to false - QR code is more reliable
+  phoneNumber: '', // Your phone number with country code (e.g., '+1234567890')
   
   // OpenAI settings
   openaiKey: process.env.OPEN_AI_KEY,
@@ -553,7 +553,7 @@ app.get("/", (req, res) => {
             </div>
             
             <div id="qrSection" style="margin-top: 15px;">
-                <div id="qrContainer" class="qr-container">${isConnected ? '✅ Connected and authenticated!' : isConnecting ? '🔄 Connecting...' : 'Connection status will appear here'}</div>
+                <div id="qrContainer" class="qr-container">${isConnected ? '✅ Connected and authenticated!' : qr ? 'Loading QR code...' : 'Waiting for QR code...'}</div>
             </div>
         </div>
         
@@ -613,6 +613,35 @@ app.get("/", (req, res) => {
     </div>
 
     <script>
+        // Check for QR code on page load and refresh
+        async function loadQRCode() {
+            if (${isConnected}) return; // Don't try to load QR if already connected
+            
+            try {
+                const response = await fetch('/qr-image');
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('qrContainer').innerHTML = 
+                        '<h4>📱 Scan QR Code with WhatsApp:</h4><img src="' + data.dataUrl + '" class="qr-container img" style="max-width: 300px; border: 2px solid #25D366; border-radius: 10px;" /><p>Open WhatsApp > Menu > Linked Devices > Link a Device</p>';
+                } else if (response.status === 404) {
+                    document.getElementById('qrContainer').innerHTML = '🔄 Generating QR code...';
+                }
+            } catch (error) {
+                console.error('Error loading QR:', error);
+                document.getElementById('qrContainer').innerHTML = '⚠️ Error loading QR code';
+            }
+        }
+
+        // Load QR code immediately and every 5 seconds
+        loadQRCode();
+        const qrInterval = setInterval(() => {
+            if (${isConnected}) {
+                clearInterval(qrInterval);
+                return;
+            }
+            loadQRCode();
+        }, 5000);
+
         async function refreshStatus() {
             try {
                 const response = await fetch('/status');
