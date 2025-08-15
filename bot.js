@@ -24,7 +24,7 @@ require("dotenv").config();
 const CONFIG = {
   // Auth settings
   authFolder: './baileys_auth_info',
-  usePhoneNumber: false, // Set to true to use phone number instead of QR
+  usePhoneNumber: true, // Set to true to use phone number instead of QR
   phoneNumber: '+2348119729920', // Your phone number with country code (e.g., '+1234567890')
   
   // OpenAI settings
