@@ -1,3 +1,10 @@
+// Import Node.js built-in modules first
+const crypto = require('crypto');
+const fs = require("fs");
+const path = require("path");
+const readline = require('readline');
+
+// Import third-party modules
 const {
   default: makeWASocket,
   DisconnectReason,
@@ -14,18 +21,15 @@ const pino = require('pino');
 const qrcode = require('qrcode-terminal');
 const QR = require('qrcode');
 const OpenAI = require("openai");
-const fs = require("fs");
-const path = require("path");
 const express = require("express");
-const readline = require('readline');
 
 // Configuration
 require("dotenv").config();
 const CONFIG = {
   // Auth settings
   authFolder: './baileys_auth_info',
-  usePhoneNumber: true, // Set to true to use phone number instead of QR
-  phoneNumber: '+2348119729920', // Your phone number with country code (e.g., '+1234567890')
+  usePhoneNumber: false, // Set to true to use phone number instead of QR
+  phoneNumber: '', // Your phone number with country code (e.g., '+1234567890')
   
   // OpenAI settings
   openaiKey: process.env.OPEN_AI_KEY,
@@ -360,7 +364,7 @@ async function connectToWhatsApp() {
 
 // Express dashboard
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8000;
 
 app.use(express.json());
 app.use(express.static("public"));
@@ -787,24 +791,13 @@ async function startBot() {
   console.log('🚀 Starting WhatsApp Bot with Baileys...');
   console.log('📞 Phone number auth:', CONFIG.usePhoneNumber ? 'Enabled' : 'Disabled');
   
-  if (CONFIG.usePhoneNumber && !CONFIG.phoneNumber) {
-    console.log('\n📞 Phone number authentication is enabled but no number is set.');
-    console.log('Please enter your phone number with country code (e.g., +1234567890):');
-    
-    rl.question('Phone number: ', (phoneNumber) => {
-      CONFIG.phoneNumber = phoneNumber.trim();
-      console.log(`📞 Using phone number: ${CONFIG.phoneNumber}`);
-      rl.close();
-      connectToWhatsApp();
-    });
-  } else {
-    connectToWhatsApp();
-  }
-  
-  // Start dashboard
+  // Start dashboard first
   app.listen(PORT, () => {
     console.log(`🌐 Dashboard: http://localhost:${PORT}`);
   });
+  
+  // Connect to WhatsApp
+  connectToWhatsApp();
 }
 
 // Run the bot
