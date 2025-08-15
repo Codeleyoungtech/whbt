@@ -1,63 +1,47 @@
 # Use an official Node image with Debian slim
 FROM node:18-bullseye-slim
 
-# Install required libs for Chromium (from Puppeteer troubleshooting)
+# Install basic system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    fonts-liberation \
-    libasound2 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libc6 \
-    libcairo2 \
-    libcups2 \
-    libdbus-1-3 \
-    libexpat1 \
-    libfontconfig1 \
-    libgcc1 \
-    libgdk-pixbuf2.0-0 \
-    libglib2.0-0 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libpango-1.0-0 \
-    libx11-6 \
-    libx11-xcb1 \
-    libxcb1 \
-    libxcomposite1 \
-    libxcursor1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxi6 \
-    libxrandr2 \
-    libxrender1 \
-    libxss1 \
-    libxtst6 \
-    xdg-utils \
     wget \
-    gnupg \
+    curl \
+    git \
+    python3 \
+    make \
+    g++ \
  && rm -rf /var/lib/apt/lists/*
-
-# (Optional) Install Chromium from Debian repo
-RUN apt-get update && apt-get install -y chromium \
- && rm -rf /var/lib/apt/lists/*
-
-# Set Puppeteer env if you want to use system Chromium
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Create app directory
 WORKDIR /usr/src/app
 
-# Copy package.json first and install deps (use npm ci in CI)
-COPY package*.json ./
-RUN npm ci --only=production
+# Create directories for Baileys auth and data
+RUN mkdir -p ./baileys_auth_info ./baileys_store
 
-# Copy app
+# Copy package files first for better Docker layer caching
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy application code
 COPY . .
 
-# Expose port for dashboard
+# Create a non-root user for security
+RUN groupadd -r whatsapp && useradd -r -g whatsapp -s /bin/false whatsapp
+
+# Change ownership of app directory to the whatsapp user
+RUN chown -R whatsapp:whatsapp /usr/src/app
+
+# Switch to non-root user
+USER whatsapp
+
+# Expose port for web dashboard
 EXPOSE 3000
 
-# Start the app
+# Health check for the application
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:3000/status || exit 1
+
+# Start the application
 CMD ["node", "bot.js"]
