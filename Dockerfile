@@ -21,8 +21,8 @@ RUN mkdir -p ./baileys_auth_info ./baileys_store
 # Copy package files first for better Docker layer caching
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Install dependencies (works without package-lock.json)
+RUN npm install --omit=dev && npm cache clean --force
 
 # Copy application code
 COPY . .
@@ -36,8 +36,8 @@ RUN chown -R whatsapp:whatsapp /usr/src/app
 # Switch to non-root user
 USER whatsapp
 
-# Expose port for web dashboard
-EXPOSE 3000
+# Expose port for web dashboard (Koyeb typically uses 8000)
+EXPOSE 8000
 
 # Health check for the application
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
